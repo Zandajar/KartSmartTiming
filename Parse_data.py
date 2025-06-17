@@ -34,26 +34,40 @@ def get_race_results():
         driver.quit()
     return results
 
-raw_data = get_race_results()
-print(raw_data)
 
-def find_subarray_index():
+raw_data = get_race_results()
+
+
+def find_subarray_index(word):
     for index, subarray in enumerate(raw_data):
-        if "Gap" in subarray:
+        if word in subarray:
             return index
     return -1
+
 
 def get_driver_names():
     return raw_data[1]
 
+
 def get_driver_place():
     return get_driver_names().index(input("Write driver name: "))
+
 
 def get_kart_number():
     return raw_data[2]
 
+
 def get_time_list():
-    return raw_data[3:find_subarray_index()]
+    return raw_data[3:find_subarray_index("Gap")]
+
+
+def get_side_information():
+    return raw_data[find_subarray_index("Gap"):find_subarray_index("Gap") + 4]
+
+
+def get_stint_info():
+    return raw_data[find_subarray_index("S1 kart"):]
+
 
 # test id - 82924
-print(get_time_list())
+print(get_stint_info())
