@@ -1,47 +1,91 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
+import os
 from Parse_data import *
+from .driver import Driver
 
 
 class Heat:
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, load_from_file=False, **kwargs):
         self.session_id = session_id
-        self.raw_data = get_race_results()
 
-        driver_data = get_driver_names(self.raw_data)
-        kart_data = get_kart_numbers(self.raw_data)
+        if not load_from_file:
+            self.raw_data = get_race_results(session_id)
+            self._initialize_from_raw_data()
+        else:
+            self.side_info = kwargs.get('side_info', [])
+            self.stint_info = kwargs.get('stint_info', [])
+            self.drivers = [Driver.from_dict(d) for d in kwargs.get('drivers', [])]
+            self.df_laps = pd.DataFrame(kwargs.get('laps_data', []))
+
+    def _initialize_from_raw_data(self):
+        driver_names = get_driver_names(self.raw_data)
+        kart_numbers = get_kart_numbers(self.raw_data)
         time_data = get_time_list(self.raw_data)
         self.side_info = get_side_information(self.raw_data)
         self.stint_info = get_stint_info(self.raw_data)
 
+        self.drivers = []
+        for i, (name, kart_id) in enumerate(zip(driver_names[1:], kart_numbers[1:])):
+            driver = Driver(place=i + 1, name=name, kart_id=kart_id)
+            self.drivers.append(driver)
+
         if time_data:
             headers = time_data[0]
-            self.df_laps = pd.DataFrame(time_data[1:], columns=headers)
+            rows = time_data[1:]
+            self.df_laps = pd.DataFrame(rows, columns=headers)
+
+            for i, driver in enumerate(self.drivers):
+                col_name = headers[i + 1] if i + 1 < len(headers) else None
+                if col_name:
+                    times = self.df_laps[col_name].tolist()
+                    for time in times:
+                        driver.add_time(time)
         else:
             self.df_laps = pd.DataFrame()
 
-        self.df_drivers = pd.DataFrame({
-            'Driver': driver_data[1:],
-            'Kart': kart_data[1:]
-        }) if driver_data and kart_data else pd.DataFrame(columns=['Driver', 'Kart'])
-
     def get_driver_names(self) -> list:
-        return ['Driver'] + self.df_drivers['Driver'].tolist()
+        return ['Driver'] + [d.get_name() for d in self.drivers]
 
     def get_kart_numbers(self) -> list:
-        return ['Kart'] + self.df_drivers['Kart'].tolist()
+        return ['Kart'] + [d.get_kart_id() for d in self.drivers]
 
     def get_time_list(self) -> list:
         if self.df_laps.empty:
             return []
-
         return [self.df_laps.columns.tolist()] + self.df_laps.values.tolist()
 
-    def get_side_information(self) -> list:
-        return self.side_info
+    def save(self, filename):
+        """Сохраняет заезд в файл JSON"""
+        data = {
+            'session_id': self.session_id,
+            'side_info': self.side_info,
+            'stint_info': self.stint_info,
+            'drivers': [d.to_dict() for d in self.drivers],
+            'laps_data': self.df_laps.to_dict(orient='list')
+        }
 
-    def get_stint_info(self) -> list:
-        return self.stint_info
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load(cls, filename):
+        """Загружает заезд из файла JSON"""
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"Файл {filename} не найден")
+
+        with open(filename, 'r') as f:
+            data = json.load(f)
+
+        return cls(
+            session_id=data['session_id'],
+            load_from_file=True,
+            side_info=data['side_info'],
+            stint_info=data['stint_info'],
+            drivers=data['drivers'],
+            laps_data=data['laps_data']
+        )
 
     def print_results_table(self, data: list = None, header: bool = True):
         if not data:
