@@ -126,21 +126,20 @@ class Heat:
         self.print_results_table(full_data, header=True)
 
     def generate_results_image(self, filename: str = None):
+        os.makedirs("heats_result", exist_ok=True)
         if filename is None:
-            filename = f"results_{self.session_id}.png"
+            filename = f"heats_result/heat_{self.session_id}.png"
 
-        full_data = [
-            ["Driver"] + self.df_drivers['Driver'].tolist(),
-            ["Kart"] + self.df_drivers['Kart'].tolist()
-        ]
-
+        driver_names = self.get_driver_names()
+        kart_numbers = self.get_kart_numbers()
         time_list = self.get_time_list()
+
+        full_data = [driver_names, kart_numbers]
         if time_list:
             full_data.extend(time_list)
 
         fig, ax = plt.subplots(figsize=(14, 10))
         ax.axis('off')
-        ax.axis('tight')
         table = ax.table(
             cellText=full_data,
             loc='center',
@@ -155,7 +154,6 @@ class Heat:
         for i in range(len(full_data[0])):
             table[0, i].set_facecolor('#40466e')
             table[0, i].set_text_props(color='white', weight='bold')
-
             table[1, i].set_facecolor('#f1f1f1')
             table[1, i].set_text_props(color='black', weight='bold')
 
@@ -163,20 +161,15 @@ class Heat:
             for j in range(len(full_data[0])):
                 cell = table[i, j]
                 cell_text = full_data[i][j]
-
                 if j == 0:
                     cell.set_facecolor('#e8e8e8')
                     cell.set_text_props(weight='bold')
-                    continue
-
-                if cell_text and ' ' in cell_text:
+                elif cell_text and ' ' in cell_text:
                     cell.set_facecolor('#333333')
                     cell.set_text_props(color='white')
 
         plt.savefig(filename, bbox_inches='tight', dpi=200)
         plt.close()
-
-        print(f"Изображение результатов сохранено как: {filename}")
 
     def __str__(self) -> str:
         return f"Heat(session_id={self.session_id}, drivers={len(self.df_drivers)}, laps={len(self.df_laps)})"
