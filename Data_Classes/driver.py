@@ -1,9 +1,12 @@
 class Driver:
-    def __init__(self, place, name, kart_id):
+    def __init__(self, place: int, name: str, kart_id: int):
         self.place = place
         self.name = name
         self.kart_id = kart_id
-        self.lap_times = []
+        self.times = []
+
+    def add_time(self, time_str: str):
+        self.times.append(time_str)
 
     def get_place(self):
         return self.place
@@ -15,7 +18,7 @@ class Driver:
         return self.kart_id
 
     def get_lap_times(self):
-        return self.lap_times
+        return self.times
 
     def set_place(self, place):
         self.place = place
@@ -24,14 +27,14 @@ class Driver:
         self.kart_id = new_id
 
     def add_time(self, time):
-        self.lap_times.append(time)
+        self.times.append(time)
 
     def to_dict(self):
         return {
             'place': self.place,
             'name': self.name,
             'kart_id': self.kart_id,
-            'lap_times': self.lap_times
+            'lap_times': self.times
         }
 
     @classmethod

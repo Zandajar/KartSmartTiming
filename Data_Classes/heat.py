@@ -10,21 +10,68 @@ class Heat:
     def __init__(self, session_id: str, load_from_file=False, **kwargs):
         self.session_id = session_id
 
+        self.side_info = []
+        self.stint_info = []
+        self.drivers = []
+        self.df_laps = pd.DataFrame()
+
         if not load_from_file:
-            self.raw_data = get_race_results(session_id)
-            self._initialize_from_raw_data()
+            raw_data = get_race_results(session_id)
+            self._initialize_from_raw_data(raw_data)
         else:
             self.side_info = kwargs.get('side_info', [])
             self.stint_info = kwargs.get('stint_info', [])
-            self.drivers = [Driver.from_dict(d) for d in kwargs.get('drivers', [])]
-            self.df_laps = pd.DataFrame(kwargs.get('laps_data', []))
 
-    def _initialize_from_raw_data(self):
-        driver_names = get_driver_names(self.raw_data)
-        kart_numbers = get_kart_numbers(self.raw_data)
-        time_data = get_time_list(self.raw_data)
-        self.side_info = get_side_information(self.raw_data)
-        self.stint_info = get_stint_info(self.raw_data)
+            drivers_data = kwargs.get('drivers', [])
+            self.drivers = [Driver(place=d['place'], name=d['name'], kart_id=d['kart_id']) for d in drivers_data]
+
+            for driver, driver_data in zip(self.drivers, drivers_data):
+                for time in driver_data.get('times', []):
+                    driver.add_time(time)
+
+            self._reconstruct_df_laps()
+
+    def _reconstruct_df_laps(self):
+        """Воссоздает DataFrame laps из данных водителей"""
+        if not self.drivers:
+            self.df_laps = pd.DataFrame()
+            return
+
+        data_dict = {}
+        max_laps = max(len(driver.times) for driver in self.drivers)
+
+        data_dict['Lap'] = [f'Lap {i + 1}' for i in range(max_laps)]
+
+        for driver in self.drivers:
+            times = driver.times + [''] * (max_laps - len(driver.times))
+            data_dict[driver.name] = times
+
+        self.df_laps = pd.DataFrame(data_dict)
+
+    def _reconstruct_df_laps(self):
+        """Воссоздает DataFrame laps из данных водителей"""
+        if not self.drivers:
+            self.df_laps = pd.DataFrame()
+            return
+
+        data_dict = {}
+        max_laps = max(len(driver.times) for driver in self.drivers)
+
+        data_dict['Lap'] = [f'Lap {i + 1}' for i in range(max_laps)]
+
+        for driver in self.drivers:
+            times = driver.times + [''] * (max_laps - len(driver.times))
+            data_dict[driver.name] = times
+
+        self.df_laps = pd.DataFrame(data_dict)
+
+    def _initialize_from_raw_data(self, raw_data):  # Добавляем параметр raw_data
+        """Инициализирует объект из сырых данных"""
+        driver_names = get_driver_names(raw_data)
+        kart_numbers = get_kart_numbers(raw_data)
+        time_data = get_time_list(raw_data)
+        self.side_info = get_side_information(raw_data)
+        self.stint_info = get_stint_info(raw_data)
 
         self.drivers = []
         for i, (name, kart_id) in enumerate(zip(driver_names[1:], kart_numbers[1:])):
@@ -58,14 +105,24 @@ class Heat:
 
     def save(self, filename):
         """Сохраняет заезд в файл JSON"""
+        drivers_data = []
+        for driver in self.drivers:
+            driver_dict = {
+                'place': driver.place,
+                'name': driver.name,
+                'kart_id': driver.kart_id,
+                'times': driver.times
+            }
+            drivers_data.append(driver_dict)
+
         data = {
             'session_id': self.session_id,
             'side_info': self.side_info,
             'stint_info': self.stint_info,
-            'drivers': [d.to_dict() for d in self.drivers],
-            'laps_data': self.df_laps.to_dict(orient='list')
+            'drivers': drivers_data
         }
 
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'w') as f:
             json.dump(data, f, indent=2)
 
@@ -78,13 +135,34 @@ class Heat:
         with open(filename, 'r') as f:
             data = json.load(f)
 
+        if 'laps_data' in data:
+
+            drivers_data = []
+            for driver_dict in data['drivers']:
+                driver_data = {
+                    'place': driver_dict['place'],
+                    'name': driver_dict['name'],
+                    'kart_id': driver_dict['kart_id'],
+                    'times': driver_dict.get('times', [])
+                }
+                drivers_data.append(driver_data)
+            heat = cls(
+                session_id=data['session_id'],
+                load_from_file=True,
+                side_info=data['side_info'],
+                stint_info=data['stint_info'],
+                drivers=drivers_data
+            )
+
+            heat.save(filename)
+            return heat
+
         return cls(
             session_id=data['session_id'],
             load_from_file=True,
             side_info=data['side_info'],
             stint_info=data['stint_info'],
-            drivers=data['drivers'],
-            laps_data=data['laps_data']
+            drivers=data['drivers']
         )
 
     def print_results_table(self, data: list = None, header: bool = True):
