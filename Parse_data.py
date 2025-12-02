@@ -1,55 +1,118 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
+from bs4 import BeautifulSoup
 
-def get_race_results(session_id):
-    driver = webdriver.Chrome()
-    driver.get(f"https://timing.batyrshin.name/tracks/narvskaya/heats/{session_id}")
+VALID_TRACKS = {"narvskaya", "premium", "drive"}
 
-    try:
-        results = []
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "table"))
+
+def get_race_results(session_id: str, track: str = "narvskaya"):
+    """
+    Загружает HTML заезда и возвращает список строк таблицы:
+    [
+        ["Driver", "Имя1", "Имя2", ...],
+        ["Kart", "12", "21", ...],
+        ["1", "28.766 P3 +0.123", "28.543 P1", ...],
+        ...
+        ["Best", "27.901", "28.074", ...],
+        ["Avg",  ...],
+        ["Dev",  ...]
+    ]
+    """
+    if track not in VALID_TRACKS:
+        raise ValueError(
+            f"Unknown track '{track}'. Must be one of: {', '.join(VALID_TRACKS)}"
         )
 
-        tables = driver.find_elements(By.TAG_NAME, "table")
+    url = f"https://timing.batyrshin.name/tracks/{track}/heats/{session_id}"
 
-        for table in tables:
-            rows = table.find_elements(By.TAG_NAME, "tr")
-            for row in rows:
-                cells = row.find_elements(By.XPATH, ".//th|.//td")
-                results.append([cell.text.strip() for cell in cells])
-
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
     except Exception as e:
-        print(f"Ошибка: {e}")
-        results = []
-    finally:
-        driver.quit()
+        print(f"Ошибка загрузки {url}: {e}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    table = soup.select_one("table.heat-result")
+
+    if table is None:
+        print("Не найдена таблица .heat-result — возможно неверный session_id.")
+        return []
+
+    results = []
+    for row in table.find_all("tr"):
+        cells = row.find_all(["th", "td"])
+        row_text = [" ".join(c.get_text(strip=True).split()) for c in cells]
+        if any(row_text):
+            results.append(row_text)
+
     return results
 
-def find_subarray_index(data, word):
-    for index, subarray in enumerate(data):
-        if word in subarray:
+
+def find_subarray_index(data, word: str) -> int:
+    for index, row in enumerate(data):
+        if row and row[0].strip() == word:
             return index
     return -1
 
+
 def get_driver_names(data):
-    return data[1] if len(data) > 1 else []
+    for row in data:
+        if row and row[0].lower() == "driver":
+            return row
+    return []
+
 
 def get_kart_numbers(data):
-    return data[2] if len(data) > 2 else []
+    for row in data:
+        if row and row[0].lower() == "kart":
+            return row
+    return []
+
 
 def get_time_list(data):
-    gap_index = find_subarray_index(data, "Gap")
-    return data[3:gap_index] if gap_index != -1 else []
+    driver_idx = None
+    kart_idx = None
+
+    for i, row in enumerate(data):
+        if not row:
+            continue
+        first = row[0].lower()
+        if first == "driver":
+            driver_idx = i
+        elif first == "kart":
+            kart_idx = i
+
+    if driver_idx is None or kart_idx is None:
+        return []
+
+    start_idx = kart_idx + 1
+    best_idx = find_subarray_index(data, "Best")
+    end_idx = best_idx if best_idx != -1 else len(data)
+
+    lap_rows = [row for row in data[start_idx:end_idx] if row and row[0].isdigit()]
+
+    if not lap_rows:
+        return []
+
+    drivers = data[driver_idx][1:]
+    headers = ["Lap"] + drivers
+    expected = len(headers)
+
+    result = [headers]
+
+    for row in lap_rows:
+        if len(row) < expected:
+            row = row + [""] * (expected - len(row))
+        result.append(row[:expected])
+
+    return result
+
 
 def get_side_information(data):
-    gap_index = find_subarray_index(data, "Gap")
-    if gap_index == -1:
-        return []
-    return data[gap_index:gap_index + 4]
-
-def get_stint_info(data):
-    s1_index = find_subarray_index(data, "S1 kart")
-    return data[s1_index:] if s1_index != -1 else []
+    side = []
+    for row in data:
+        if not row:
+            continue
+        if row[0] in ("Best", "Avg", "Dev"):
+            side.append(row)
+    return side
